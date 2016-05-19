@@ -1,3 +1,11 @@
+mesa (11.3~devel+git20160517-1) unstable; urgency=medium
+
+  * Add correct gbp.conf
+  * Imported Upstream version 11.3~devel+git20160517
+  * Remove patch already merged upstream
+
+ -- Ondřej Surý <ondrej@debian.org>  Thu, 19 May 2016 11:04:53 +0200
+
 mesa (11.2.2-1) unstable; urgency=medium
 
   * New upstream release.
