@@ -25,6 +25,7 @@
  *    Jason Ekstrand <jason.ekstrand@intel.com>
  */
 
+#include "context.h"
 #include "glheader.h"
 #include "errors.h"
 #include "enums.h"
@@ -360,8 +361,32 @@ compressed_format_compatible(const struct gl_context *ctx,
       case GL_COMPRESSED_SIGNED_RED_RGTC1:
          compressedClass = BLOCK_CLASS_64_BITS;
          break;
+      case GL_COMPRESSED_RGBA8_ETC2_EAC:
+      case GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC:
+      case GL_COMPRESSED_RG11_EAC:
+      case GL_COMPRESSED_SIGNED_RG11_EAC:
+         if (_mesa_is_gles(ctx))
+            compressedClass = BLOCK_CLASS_128_BITS;
+         else
+            return false;
+         break;
+      case GL_COMPRESSED_RGB8_ETC2:
+      case GL_COMPRESSED_SRGB8_ETC2:
+      case GL_COMPRESSED_R11_EAC:
+      case GL_COMPRESSED_SIGNED_R11_EAC:
+      case GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2:
+      case GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2:
+         if (_mesa_is_gles(ctx))
+            compressedClass = BLOCK_CLASS_64_BITS;
+         else
+            return false;
+         break;
       default:
-         return false;
+         if (_mesa_is_gles(ctx) && _mesa_is_astc_format(compressedFormat))
+            compressedClass = BLOCK_CLASS_128_BITS;
+         else
+            return false;
+         break;
    }
 
    switch (otherFormat) {
@@ -527,9 +552,23 @@ _mesa_CopyImageSubData(GLuint srcName, GLenum srcTarget, GLint srcLevel,
                             "dst"))
       return;
 
+   /* Section 18.3.2 (Copying Between Images) of the OpenGL 4.5 Core Profile
+    * spec says:
+    *
+    *    An INVALID_OPERATION error is generated if either object is a texture
+    *    and the texture is not complete, if the source and destination internal
+    *    formats are not compatible, or if the number of samples do not match.
+    */
    if (!copy_format_compatible(ctx, srcIntFormat, dstIntFormat)) {
       _mesa_error(ctx, GL_INVALID_OPERATION,
                   "glCopyImageSubData(internalFormat mismatch)");
+      return;
+   }
+
+   if (srcTexImage && dstTexImage &&
+       srcTexImage->NumSamples != dstTexImage->NumSamples) {
+      _mesa_error(ctx, GL_INVALID_OPERATION,
+                  "glCopyImageSubData(number of samples mismatch)");
       return;
    }
 

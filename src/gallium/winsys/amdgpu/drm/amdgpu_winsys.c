@@ -93,13 +93,26 @@ static unsigned cik_get_num_tile_pipes(struct amdgpu_gpu_info *info)
 }
 
 /* Helper function to do the ioctls needed for setup and init. */
-static boolean do_winsys_init(struct amdgpu_winsys *ws)
+static boolean do_winsys_init(struct amdgpu_winsys *ws, int fd)
 {
    struct amdgpu_buffer_size_alignments alignment_info = {};
    struct amdgpu_heap_info vram, gtt;
    struct drm_amdgpu_info_hw_ip dma = {}, uvd = {}, vce = {};
    uint32_t vce_version = 0, vce_feature = 0;
    int r, i, j;
+   drmDevicePtr devinfo;
+
+   /* Get PCI info. */
+   r = drmGetDevice(fd, &devinfo);
+   if (r) {
+      fprintf(stderr, "amdgpu: drmGetDevice failed.\n");
+      goto fail;
+   }
+   ws->info.pci_domain = devinfo->businfo.pci->domain;
+   ws->info.pci_bus = devinfo->businfo.pci->bus;
+   ws->info.pci_dev = devinfo->businfo.pci->dev;
+   ws->info.pci_func = devinfo->businfo.pci->func;
+   drmFreeDevice(&devinfo);
 
    /* Query hardware and driver information. */
    r = amdgpu_query_gpu_info(ws->dev, &ws->amdinfo);
@@ -224,6 +237,14 @@ static boolean do_winsys_init(struct amdgpu_winsys *ws)
       ws->family = FAMILY_VI;
       ws->rev_id = VI_FIJI_P_A0;
       break;
+   case CHIP_POLARIS10:
+      ws->family = FAMILY_VI;
+      ws->rev_id = VI_POLARIS10_P_A0;
+      break;
+   case CHIP_POLARIS11:
+      ws->family = FAMILY_VI;
+      ws->rev_id = VI_POLARIS11_M_A0;
+      break;
    default:
       fprintf(stderr, "amdgpu: Unknown family.\n");
       goto fail;
@@ -234,6 +255,10 @@ static boolean do_winsys_init(struct amdgpu_winsys *ws)
       fprintf(stderr, "amdgpu: Cannot create addrlib.\n");
       goto fail;
    }
+
+   /* Set which chips have dedicated VRAM. */
+   ws->info.has_dedicated_vram =
+      !(ws->amdinfo.ids_flags & AMDGPU_IDS_FLAGS_FUSION);
 
    /* Set hardware information. */
    ws->info.gart_size = gtt.heap_size;
@@ -262,14 +287,12 @@ static boolean do_winsys_init(struct amdgpu_winsys *ws)
 
    memcpy(ws->info.si_tile_mode_array, ws->amdinfo.gb_tile_mode,
           sizeof(ws->amdinfo.gb_tile_mode));
-   ws->info.si_tile_mode_array_valid = TRUE;
    ws->info.enabled_rb_mask = ws->amdinfo.enabled_rb_pipes_mask;
 
    memcpy(ws->info.cik_macrotile_mode_array, ws->amdinfo.gb_macro_tile_mode,
           sizeof(ws->amdinfo.gb_macro_tile_mode));
-   ws->info.cik_macrotile_mode_array_valid = TRUE;
 
-   ws->gart_page_size = alignment_info.size_remote;
+   ws->info.gart_page_size = alignment_info.size_remote;
 
    return TRUE;
 
@@ -437,7 +460,7 @@ amdgpu_winsys_create(int fd, radeon_screen_create_t screen_create)
    ws->info.drm_major = drm_major;
    ws->info.drm_minor = drm_minor;
 
-   if (!do_winsys_init(ws))
+   if (!do_winsys_init(ws, fd))
       goto fail;
 
    /* Create managers. */

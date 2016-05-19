@@ -138,6 +138,10 @@ brw_codegen_gs_prog(struct brw_context *brw,
 
    GLbitfield64 outputs_written = gp->program.Base.OutputsWritten;
 
+   prog_data.base.cull_distance_mask =
+      ((1 << gp->program.Base.CullDistanceArraySize) - 1) <<
+      gp->program.Base.ClipDistanceArraySize;
+
    brw_compute_vue_map(brw->intelScreen->devinfo,
                        &prog_data.base.vue_map, outputs_written,
                        prog ? prog->SeparateShader : false);
@@ -195,7 +199,7 @@ brw_codegen_gs_prog(struct brw_context *brw,
 }
 
 static bool
-brw_gs_state_dirty(struct brw_context *brw)
+brw_gs_state_dirty(const struct brw_context *brw)
 {
    return brw_state_dirty(brw,
                           _NEW_TEXTURE,

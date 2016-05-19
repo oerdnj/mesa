@@ -383,6 +383,10 @@ struct _mesa_glsl_parse_state {
       /* ARB_draw_buffers */
       unsigned MaxDrawBuffers;
 
+      /* ARB_enhanced_layouts */
+      unsigned MaxTransformFeedbackBuffers;
+      unsigned MaxTransformFeedbackInterleavedComponents;
+
       /* ARB_blend_func_extended */
       unsigned MaxDualSourceDrawBuffers;
 
@@ -457,6 +461,9 @@ struct _mesa_glsl_parse_state {
       unsigned MaxTessControlTotalOutputComponents;
       unsigned MaxTessControlUniformComponents;
       unsigned MaxTessEvaluationUniformComponents;
+
+      /* GL 4.5 / OES_sample_variables */
+      unsigned MaxSamples;
    } Const;
 
    /**
@@ -503,12 +510,18 @@ struct _mesa_glsl_parse_state {
    /*@{*/
    /* ARB extensions go here, sorted alphabetically.
     */
+   bool ARB_ES3_1_compatibility_enable;
+   bool ARB_ES3_1_compatibility_warn;
+   bool ARB_ES3_2_compatibility_enable;
+   bool ARB_ES3_2_compatibility_warn;
    bool ARB_arrays_of_arrays_enable;
    bool ARB_arrays_of_arrays_warn;
    bool ARB_compute_shader_enable;
    bool ARB_compute_shader_warn;
    bool ARB_conservative_depth_enable;
    bool ARB_conservative_depth_warn;
+   bool ARB_cull_distance_enable;
+   bool ARB_cull_distance_warn;
    bool ARB_derivative_control_enable;
    bool ARB_derivative_control_warn;
    bool ARB_draw_buffers_enable;
@@ -533,6 +546,8 @@ struct _mesa_glsl_parse_state {
    bool ARB_sample_shading_warn;
    bool ARB_separate_shader_objects_enable;
    bool ARB_separate_shader_objects_warn;
+   bool ARB_shader_atomic_counter_ops_enable;
+   bool ARB_shader_atomic_counter_ops_warn;
    bool ARB_shader_atomic_counters_enable;
    bool ARB_shader_atomic_counters_warn;
    bool ARB_shader_bit_encoding_enable;
@@ -593,10 +608,20 @@ struct _mesa_glsl_parse_state {
    bool OES_geometry_point_size_warn;
    bool OES_geometry_shader_enable;
    bool OES_geometry_shader_warn;
+   bool OES_gpu_shader5_enable;
+   bool OES_gpu_shader5_warn;
+   bool OES_sample_variables_enable;
+   bool OES_sample_variables_warn;
+   bool OES_shader_image_atomic_enable;
+   bool OES_shader_image_atomic_warn;
+   bool OES_shader_multisample_interpolation_enable;
+   bool OES_shader_multisample_interpolation_warn;
    bool OES_standard_derivatives_enable;
    bool OES_standard_derivatives_warn;
    bool OES_texture_3D_enable;
    bool OES_texture_3D_warn;
+   bool OES_texture_buffer_enable;
+   bool OES_texture_buffer_warn;
    bool OES_texture_storage_multisample_2d_array_enable;
    bool OES_texture_storage_multisample_2d_array_warn;
 
@@ -616,6 +641,8 @@ struct _mesa_glsl_parse_state {
    bool EXT_blend_func_extended_warn;
    bool EXT_draw_buffers_enable;
    bool EXT_draw_buffers_warn;
+   bool EXT_gpu_shader5_enable;
+   bool EXT_gpu_shader5_warn;
    bool EXT_separate_shader_objects_enable;
    bool EXT_separate_shader_objects_warn;
    bool EXT_shader_integer_mix_enable;
@@ -624,6 +651,8 @@ struct _mesa_glsl_parse_state {
    bool EXT_shader_samples_identical_warn;
    bool EXT_texture_array_enable;
    bool EXT_texture_array_warn;
+   bool EXT_texture_buffer_enable;
+   bool EXT_texture_buffer_warn;
    /*@}*/
 
    /** Extensions supported by the OpenGL implementation. */
@@ -675,6 +704,12 @@ struct _mesa_glsl_parse_state {
     * did the parser just parse a dot.
     */
    bool is_field;
+
+   /**
+    * seen values for clip/cull distance sizes
+    * so we can check totals aren't too large.
+    */
+   unsigned clip_dist_size, cull_dist_size;
 };
 
 # define YYLLOC_DEFAULT(Current, Rhs, N)			\

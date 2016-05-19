@@ -30,7 +30,6 @@
 #include "brw_shader.h"
 #include "brw_ir_fs.h"
 #include "brw_fs_builder.h"
-#include "compiler/glsl/ir.h"
 #include "compiler/nir/nir.h"
 
 struct bblock_t;
@@ -55,11 +54,9 @@ offset(fs_reg reg, const brw::fs_builder& bld, unsigned delta)
    case MRF:
    case VGRF:
    case ATTR:
+   case UNIFORM:
       return byte_offset(reg,
                          delta * reg.component_size(bld.dispatch_width()));
-   case UNIFORM:
-      reg.reg_offset += delta;
-      break;
    case IMM:
       assert(delta == 0);
    }
@@ -108,13 +105,14 @@ public:
                                    uint32_t const_offset);
    void DEP_RESOLVE_MOV(const brw::fs_builder &bld, int grf);
 
-   bool run_fs(bool do_rep_send);
+   bool run_fs(bool allow_spilling, bool do_rep_send);
    bool run_vs(gl_clip_plane *clip_planes);
+   bool run_tcs_single_patch();
    bool run_tes();
    bool run_gs();
    bool run_cs();
    void optimize();
-   void allocate_registers();
+   void allocate_registers(bool allow_spilling);
    void setup_fs_payload_gen4();
    void setup_fs_payload_gen6();
    void setup_vs_payload();
@@ -126,9 +124,10 @@ public:
    void assign_urb_setup();
    void convert_attr_sources_to_hw_regs(fs_inst *inst);
    void assign_vs_urb_setup();
+   void assign_tcs_single_patch_urb_setup();
    void assign_tes_urb_setup();
    void assign_gs_urb_setup();
-   bool assign_regs(bool allow_spilling);
+   bool assign_regs(bool allow_spilling, bool spill_all);
    void assign_regs_trivial();
    void calculate_payload_ranges(int payload_node_count,
                                  int *payload_last_use_ip);
@@ -139,7 +138,7 @@ public:
    void split_virtual_grfs();
    bool compact_virtual_grfs();
    void assign_constant_locations();
-   void demote_pull_constants();
+   void lower_constant_loads();
    void invalidate_live_intervals();
    void calculate_live_intervals();
    void calculate_register_pressure();
@@ -153,6 +152,7 @@ public:
    bool try_constant_propagate(fs_inst *inst, acp_entry *entry);
    bool opt_copy_propagate_local(void *mem_ctx, bblock_t *block,
                                  exec_list *acp);
+   bool opt_drop_redundant_mov_to_flags();
    bool opt_register_renaming();
    bool register_coalesce();
    bool compute_to_mrf();
@@ -173,6 +173,8 @@ public:
    void no16(const char *msg);
    void lower_uniform_pull_constant_loads();
    bool lower_load_payload();
+   bool lower_pack();
+   bool lower_d2x();
    bool lower_logical_sends();
    bool lower_integer_multiplication();
    bool lower_minmax();
@@ -189,6 +191,7 @@ public:
    fs_reg *emit_frontfacing_interpolation();
    fs_reg *emit_samplepos_setup();
    fs_reg *emit_sampleid_setup();
+   fs_reg *emit_samplemaskin_setup();
    void emit_general_interpolation(fs_reg *attr, const char *name,
                                    const glsl_type *type,
                                    glsl_interp_qualifier interpolation_mode,
@@ -198,20 +201,6 @@ public:
    void emit_interpolation_setup_gen4();
    void emit_interpolation_setup_gen6();
    void compute_sample_position(fs_reg dst, fs_reg int_sample_pos);
-   void emit_texture(ir_texture_opcode op,
-                     const glsl_type *dest_type,
-                     fs_reg coordinate, int components,
-                     fs_reg shadow_c,
-                     fs_reg lod, fs_reg dpdy, int grad_components,
-                     fs_reg sample_index,
-                     fs_reg offset,
-                     fs_reg mcs,
-                     int gather_component,
-                     bool is_cube_array,
-                     uint32_t surface,
-                     fs_reg surface_reg,
-                     uint32_t sampler,
-                     fs_reg sampler_reg);
    fs_reg emit_mcs_fetch(const fs_reg &coordinate, unsigned components,
                          const fs_reg &sampler);
    void emit_gen6_gather_wa(uint8_t wa, fs_reg dst);
@@ -247,6 +236,8 @@ public:
                        nir_ssa_undef_instr *instr);
    void nir_emit_vs_intrinsic(const brw::fs_builder &bld,
                               nir_intrinsic_instr *instr);
+   void nir_emit_tcs_intrinsic(const brw::fs_builder &bld,
+                               nir_intrinsic_instr *instr);
    void nir_emit_gs_intrinsic(const brw::fs_builder &bld,
                               nir_intrinsic_instr *instr);
    void nir_emit_fs_intrinsic(const brw::fs_builder &bld,
@@ -272,6 +263,8 @@ public:
    void emit_percomp(const brw::fs_builder &bld, const fs_inst &inst,
                      unsigned wr_mask);
 
+   bool optimize_extract_to_float(nir_alu_instr *instr,
+                                  const fs_reg &result);
    bool optimize_frontfacing_ternary(nir_alu_instr *instr,
                                      const fs_reg &result);
 
@@ -324,8 +317,6 @@ public:
 
    const struct brw_vue_map *input_vue_map;
 
-   int *param_size;
-
    int *virtual_grf_start;
    int *virtual_grf_end;
    brw::fs_live_variables *live_intervals;
@@ -372,9 +363,6 @@ public:
    bool simd16_unsupported;
    char *no16_msg;
 
-   /* Result of last visit() method. Still used by emit_texture() */
-   fs_reg result;
-
    /** Register numbers for thread payload fields. */
    struct thread_payload {
       uint8_t source_depth_reg;
@@ -402,6 +390,7 @@ public:
    fs_reg userplane[MAX_CLIP_PLANES];
    fs_reg final_gs_vertex_count;
    fs_reg control_data_bits;
+   fs_reg invocation_id;
 
    unsigned grf_used;
    bool spilled_any_registers;
@@ -448,7 +437,6 @@ private:
    void generate_stencil_ref_packing(fs_inst *inst, struct brw_reg dst,
                                      struct brw_reg src);
    void generate_barrier(fs_inst *inst, struct brw_reg src);
-   void generate_blorp_fb_write(fs_inst *inst);
    void generate_linterp(fs_inst *inst, struct brw_reg dst,
 			 struct brw_reg *src);
    void generate_tex(fs_inst *inst, struct brw_reg dst, struct brw_reg src,
@@ -547,3 +535,13 @@ private:
 
 bool brw_do_channel_expressions(struct exec_list *instructions);
 bool brw_do_vector_splitting(struct exec_list *instructions);
+
+void shuffle_32bit_load_result_to_64bit_data(const brw::fs_builder &bld,
+                                             const fs_reg &dst,
+                                             const fs_reg &src,
+                                             uint32_t components);
+
+void shuffle_64bit_data_for_32bit_write(const brw::fs_builder &bld,
+                                        const fs_reg &dst,
+                                        const fs_reg &src,
+                                        uint32_t components);

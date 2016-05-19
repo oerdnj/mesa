@@ -137,7 +137,8 @@ brw_codegen_wm_prog(struct brw_context *brw,
    program = brw_compile_fs(brw->intelScreen->compiler, brw, mem_ctx,
                             key, &prog_data, fp->program.Base.nir,
                             &fp->program.Base, st_index8, st_index16,
-                            brw->use_rep_send, &program_size, &error_str);
+                            true, brw->use_rep_send,
+                            &program_size, &error_str);
    if (program == NULL) {
       if (prog) {
          prog->LinkStatus = false;
@@ -250,10 +251,8 @@ brw_wm_debug_recompile(struct brw_context *brw,
                       old_key->stats_wm, key->stats_wm);
    found |= key_debug(brw, "flat shading",
                       old_key->flat_shade, key->flat_shade);
-   found |= key_debug(brw, "per-sample shading",
-                      old_key->persample_shading, key->persample_shading);
-   found |= key_debug(brw, "per-sample shading and 2x MSAA",
-                      old_key->persample_2x, key->persample_2x);
+   found |= key_debug(brw, "per-sample interpolation",
+                      old_key->persample_interp, key->persample_interp);
    found |= key_debug(brw, "number of color buffers",
                       old_key->nr_color_regions, key->nr_color_regions);
    found |= key_debug(brw, "MRT alpha test or alpha-to-coverage",
@@ -262,6 +261,8 @@ brw_wm_debug_recompile(struct brw_context *brw,
                       old_key->render_to_fbo, key->render_to_fbo);
    found |= key_debug(brw, "fragment color clamping",
                       old_key->clamp_fragment_color, key->clamp_fragment_color);
+   found |= key_debug(brw, "multisampled FBO",
+                      old_key->multisample_fbo, key->multisample_fbo);
    found |= key_debug(brw, "line smoothing",
                       old_key->line_aa, key->line_aa);
    found |= key_debug(brw, "renderbuffer height",
@@ -361,8 +362,12 @@ brw_populate_sampler_prog_key_data(struct gl_context *ctx,
          struct intel_texture_object *intel_tex =
             intel_texture_object((struct gl_texture_object *)t);
 
+         /* From gen9 onwards some single sampled buffers can also be
+          * compressed. These don't need ld2dms sampling along with mcs fetch.
+          */
          if (brw->gen >= 7 &&
-             intel_tex->mt->msaa_layout == INTEL_MSAA_LAYOUT_CMS) {
+             intel_tex->mt->msaa_layout == INTEL_MSAA_LAYOUT_CMS &&
+             intel_tex->mt->num_samples > 1) {
             key->compressed_multisample_layout_mask |= 1 << s;
 
             if (intel_tex->mt->num_samples >= 16) {
@@ -375,7 +380,7 @@ brw_populate_sampler_prog_key_data(struct gl_context *ctx,
 }
 
 static bool
-brw_wm_state_dirty (struct brw_context *brw)
+brw_wm_state_dirty(const struct brw_context *brw)
 {
    return brw_state_dirty(brw,
                           _NEW_BUFFERS |
@@ -406,7 +411,6 @@ brw_wm_populate_key(struct brw_context *brw, struct brw_wm_prog_key *key)
    GLuint lookup = 0;
    GLuint line_aa;
    bool program_uses_dfdy = fp->program.UsesDFdy;
-   const bool multisample_fbo = _mesa_geometric_samples(ctx->DrawBuffer) > 1;
 
    memset(key, 0, sizeof(*key));
 
@@ -508,7 +512,8 @@ brw_wm_populate_key(struct brw_context *brw, struct brw_wm_prog_key *key)
       key->drawable_height = _mesa_geometric_height(ctx->DrawBuffer);
    }
 
-   if ((fp->program.Base.InputsRead & VARYING_BIT_POS) || program_uses_dfdy) {
+   if ((fp->program.Base.InputsRead & VARYING_BIT_POS) ||
+       program_uses_dfdy || prog->nir->info.uses_interp_var_at_offset) {
       key->render_to_fbo = _mesa_is_user_fbo(ctx->DrawBuffer);
    }
 
@@ -525,19 +530,14 @@ brw_wm_populate_key(struct brw_context *brw, struct brw_wm_prog_key *key)
 
    /* _NEW_BUFFERS _NEW_MULTISAMPLE */
    /* Ignore sample qualifier while computing this flag. */
-   key->persample_shading =
-      _mesa_get_min_invocations_per_fragment(ctx, &fp->program, true) > 1;
-   if (key->persample_shading)
-      key->persample_2x = _mesa_geometric_samples(ctx->DrawBuffer) == 2;
+   if (ctx->Multisample.Enabled) {
+      key->persample_interp =
+         ctx->Multisample.SampleShading &&
+         (ctx->Multisample.MinSampleShadingValue *
+          _mesa_geometric_samples(ctx->DrawBuffer) > 1);
 
-   key->compute_pos_offset =
-      _mesa_get_min_invocations_per_fragment(ctx, &fp->program, false) > 1 &&
-      fp->program.Base.SystemValuesRead & SYSTEM_BIT_SAMPLE_POS;
-
-   key->compute_sample_id =
-      multisample_fbo &&
-      ctx->Multisample.Enabled &&
-      (fp->program.Base.SystemValuesRead & SYSTEM_BIT_SAMPLE_ID);
+      key->multisample_fbo = _mesa_geometric_samples(ctx->DrawBuffer) > 1;
+   }
 
    /* BRW_NEW_VUE_MAP_GEOM_OUT */
    if (brw->gen < 6 || _mesa_bitcount_64(fp->program.Base.InputsRead &

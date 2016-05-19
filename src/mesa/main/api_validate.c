@@ -665,6 +665,15 @@ _mesa_validate_DrawTransformFeedback(struct gl_context *ctx,
       return GL_FALSE;
    }
 
+   /* From the GL 4.5 specification, page 429:
+    * "An INVALID_VALUE error is generated if id is not the name of a
+    *  transform feedback object."
+    */
+   if (!obj->EverBound) {
+      _mesa_error(ctx, GL_INVALID_VALUE, "glDrawTransformFeedback*(name)");
+      return GL_FALSE;
+   }
+
    if (stream >= ctx->Const.MaxVertexStreams) {
       _mesa_error(ctx, GL_INVALID_VALUE,
                   "glDrawTransformFeedbackStream*(index>=MaxVertexStream)");
@@ -696,7 +705,7 @@ valid_draw_indirect(struct gl_context *ctx,
                     GLenum mode, const GLvoid *indirect,
                     GLsizei size, const char *name)
 {
-   const GLsizeiptr end = (GLsizeiptr)indirect + size;
+   const uint64_t end = (uint64_t) (uintptr_t) indirect + size;
 
    /* OpenGL ES 3.1 spec. section 10.5:
     *
@@ -1107,7 +1116,7 @@ valid_dispatch_indirect(struct gl_context *ctx,
                         GLintptr indirect,
                         GLsizei size, const char *name)
 {
-   GLintptr end = (GLintptr)indirect + size;
+   const uint64_t end = (uint64_t) indirect + size;
 
    if (!check_valid_to_compute(ctx, name))
       return GL_FALSE;
@@ -1117,13 +1126,13 @@ valid_dispatch_indirect(struct gl_context *ctx,
     * "An INVALID_VALUE error is generated if indirect is negative or is not a
     *  multiple of four."
     */
-   if ((GLintptr)indirect & (sizeof(GLuint) - 1)) {
+   if (indirect & (sizeof(GLuint) - 1)) {
       _mesa_error(ctx, GL_INVALID_VALUE,
                   "%s(indirect is not aligned)", name);
       return GL_FALSE;
    }
 
-   if ((GLintptr)indirect < 0) {
+   if (indirect < 0) {
       _mesa_error(ctx, GL_INVALID_VALUE,
                   "%s(indirect is less than zero)", name);
       return GL_FALSE;

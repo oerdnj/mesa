@@ -302,7 +302,7 @@ public:
    const glsl_type *construct_interface_instance() const;
 
 private:
-   glsl_struct_field fields[10];
+   glsl_struct_field fields[11];
    unsigned num_fields;
 };
 
@@ -323,6 +323,7 @@ per_vertex_accumulator::add_field(int slot, const glsl_type *type,
    this->fields[this->num_fields].name = name;
    this->fields[this->num_fields].matrix_layout = GLSL_MATRIX_LAYOUT_INHERITED;
    this->fields[this->num_fields].location = slot;
+   this->fields[this->num_fields].offset = -1;
    this->fields[this->num_fields].interpolation = INTERP_QUALIFIER_NONE;
    this->fields[this->num_fields].centroid = 0;
    this->fields[this->num_fields].sample = 0;
@@ -333,6 +334,9 @@ per_vertex_accumulator::add_field(int slot, const glsl_type *type,
    this->fields[this->num_fields].image_coherent = 0;
    this->fields[this->num_fields].image_volatile = 0;
    this->fields[this->num_fields].image_restrict = 0;
+   this->fields[this->num_fields].explicit_xfb_buffer = 0;
+   this->fields[this->num_fields].xfb_buffer = -1;
+   this->fields[this->num_fields].xfb_stride = -1;
    this->num_fields++;
 }
 
@@ -523,6 +527,16 @@ builtin_variable_generator::add_variable(const char *name,
    return var;
 }
 
+extern "C" const struct gl_builtin_uniform_desc *
+_mesa_glsl_get_builtin_uniform_desc(const char *name)
+{
+   for (unsigned i = 0; _mesa_builtin_uniform_desc[i].name != NULL; i++) {
+      if (strcmp(_mesa_builtin_uniform_desc[i].name, name) == 0) {
+         return &_mesa_builtin_uniform_desc[i];
+      }
+   }
+   return NULL;
+}
 
 ir_variable *
 builtin_variable_generator::add_uniform(const glsl_type *type,
@@ -530,16 +544,9 @@ builtin_variable_generator::add_uniform(const glsl_type *type,
 {
    ir_variable *const uni = add_variable(name, type, ir_var_uniform, -1);
 
-   unsigned i;
-   for (i = 0; _mesa_builtin_uniform_desc[i].name != NULL; i++) {
-      if (strcmp(_mesa_builtin_uniform_desc[i].name, name) == 0) {
-	 break;
-      }
-   }
-
-   assert(_mesa_builtin_uniform_desc[i].name != NULL);
    const struct gl_builtin_uniform_desc* const statevar =
-      &_mesa_builtin_uniform_desc[i];
+      _mesa_glsl_get_builtin_uniform_desc(name);
+   assert(statevar != NULL);
 
    const unsigned array_count = type->is_array() ? type->length : 1;
 
@@ -670,6 +677,11 @@ builtin_variable_generator::generate_constants()
    if (state->is_version(130, 0)) {
       add_const("gl_MaxClipDistances", state->Const.MaxClipPlanes);
       add_const("gl_MaxVaryingComponents", state->ctx->Const.MaxVarying * 4);
+   }
+   if (state->is_version(450, 0) || state->ARB_cull_distance_enable) {
+      add_const("gl_MaxCullDistances", state->Const.MaxClipPlanes);
+      add_const("gl_MaxCombinedClipAndCullDistances",
+                state->Const.MaxClipPlanes);
    }
 
    if (state->has_geometry_shader()) {
@@ -811,6 +823,13 @@ builtin_variable_generator::generate_constants()
        */
    }
 
+   if (state->has_enhanced_layouts()) {
+      add_const("gl_MaxTransformFeedbackBuffers",
+                state->Const.MaxTransformFeedbackBuffers);
+      add_const("gl_MaxTransformFeedbackInterleavedComponents",
+                state->Const.MaxTransformFeedbackInterleavedComponents);
+   }
+
    if (state->is_version(420, 310) ||
        state->ARB_shader_image_load_store_enable) {
       add_const("gl_MaxImageUnits",
@@ -834,11 +853,6 @@ builtin_variable_generator::generate_constants()
                    state->Const.MaxImageSamples);
       }
 
-      if (state->is_version(450, 310)) {
-         add_const("gl_MaxCombinedShaderOutputResources",
-                   state->Const.MaxCombinedShaderOutputResources);
-      }
-
       if (state->is_version(400, 0) ||
           state->ARB_tessellation_shader_enable) {
          add_const("gl_MaxTessControlImageUniforms",
@@ -846,6 +860,12 @@ builtin_variable_generator::generate_constants()
          add_const("gl_MaxTessEvaluationImageUniforms",
                    state->Const.MaxTessEvaluationImageUniforms);
       }
+   }
+
+   if (state->is_version(450, 310) ||
+       state->ARB_ES3_1_compatibility_enable) {
+      add_const("gl_MaxCombinedShaderOutputResources",
+                state->Const.MaxCombinedShaderOutputResources);
    }
 
    if (state->is_version(410, 0) ||
@@ -867,6 +887,11 @@ builtin_variable_generator::generate_constants()
       add_const("gl_MaxTessControlUniformComponents", state->Const.MaxTessControlUniformComponents);
       add_const("gl_MaxTessEvaluationUniformComponents", state->Const.MaxTessEvaluationUniformComponents);
    }
+
+   if (state->is_version(450, 320) ||
+       state->OES_sample_variables_enable ||
+       state->ARB_ES3_1_compatibility_enable)
+      add_const("gl_MaxSamples", state->Const.MaxSamples);
 }
 
 
@@ -876,7 +901,9 @@ builtin_variable_generator::generate_constants()
 void
 builtin_variable_generator::generate_uniforms()
 {
-   if (state->is_version(400, 0) || state->ARB_sample_shading_enable)
+   if (state->is_version(400, 320) ||
+       state->ARB_sample_shading_enable ||
+       state->OES_sample_variables_enable)
       add_uniform(int_t, "gl_NumSamples");
    add_uniform(type("gl_DepthRangeParameters"), "gl_DepthRange");
    add_uniform(array(vec4_t, VERT_ATTRIB_MAX), "gl_CurrentAttribVertMESA");
@@ -1129,7 +1156,9 @@ builtin_variable_generator::generate_fs_special_vars()
          var->enable_extension_warning("GL_AMD_shader_stencil_export");
    }
 
-   if (state->is_version(400, 0) || state->ARB_sample_shading_enable) {
+   if (state->is_version(400, 320) ||
+       state->ARB_sample_shading_enable ||
+       state->OES_sample_variables_enable) {
       add_system_value(SYSTEM_VALUE_SAMPLE_ID, int_t, "gl_SampleID");
       add_system_value(SYSTEM_VALUE_SAMPLE_POS, vec2_t, "gl_SamplePosition");
       /* From the ARB_sample_shading specification:
@@ -1142,7 +1171,9 @@ builtin_variable_generator::generate_fs_special_vars()
       add_output(FRAG_RESULT_SAMPLE_MASK, array(int_t, 1), "gl_SampleMask");
    }
 
-   if (state->is_version(400, 0) || state->ARB_gpu_shader5_enable) {
+   if (state->is_version(400, 320) ||
+       state->ARB_gpu_shader5_enable ||
+       state->OES_sample_variables_enable) {
       add_system_value(SYSTEM_VALUE_SAMPLE_MASK_IN, array(int_t, 1), "gl_SampleMaskIn");
    }
 
@@ -1153,7 +1184,7 @@ builtin_variable_generator::generate_fs_special_vars()
       var->data.interpolation = INTERP_QUALIFIER_FLAT;
    }
 
-   if (state->is_version(450, 310)/* || state->ARB_ES3_1_compatibility_enable*/)
+   if (state->is_version(450, 310) || state->ARB_ES3_1_compatibility_enable)
       add_system_value(SYSTEM_VALUE_HELPER_INVOCATION, bool_t, "gl_HelperInvocation");
 }
 
@@ -1222,6 +1253,10 @@ builtin_variable_generator::generate_varyings()
    if (state->is_version(130, 0)) {
        add_varying(VARYING_SLOT_CLIP_DIST0, array(float_t, 0),
                    "gl_ClipDistance");
+   }
+   if (state->is_version(450, 0) || state->ARB_cull_distance_enable) {
+      add_varying(VARYING_SLOT_CULL_DIST0, array(float_t, 0),
+                   "gl_CullDistance");
    }
 
    if (compatibility) {

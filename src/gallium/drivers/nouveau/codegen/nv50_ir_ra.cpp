@@ -853,7 +853,7 @@ isShortRegOp(Instruction *insn)
 static bool
 isShortRegVal(LValue *lval)
 {
-   if (lval->defs.size() == 0)
+   if (lval->getInsn() == NULL)
       return false;
    for (Value::DefCIterator def = lval->defs.begin();
         def != lval->defs.end(); ++def)
@@ -1467,7 +1467,7 @@ GCRA::allocateRegisters(ArrayList& insns)
          nodes[i].init(regs, lval);
          RIG.insert(&nodes[i]);
 
-         if (lval->inFile(FILE_GPR) && lval->defs.size() > 0 &&
+         if (lval->inFile(FILE_GPR) && lval->getInsn() != NULL &&
              prog->getTarget()->getChipset() < 0xc0) {
             Instruction *insn = lval->getInsn();
             if (insn->op == OP_MAD || insn->op == OP_SAD)
@@ -2131,7 +2131,9 @@ RegAlloc::InsertConstraintsPass::texConstraintNVE0(TexInstruction *tex)
    condenseDefs(tex);
 
    if (tex->op == OP_SUSTB || tex->op == OP_SUSTP) {
-      condenseSrcs(tex, 3, (3 + typeSizeof(tex->dType) / 4) - 1);
+      int n = tex->srcCount(0xff);
+      if (n > 4)
+         condenseSrcs(tex, 3, n - 1);
    } else
    if (isTextureOp(tex->op)) {
       int n = tex->srcCount(0xff, true);

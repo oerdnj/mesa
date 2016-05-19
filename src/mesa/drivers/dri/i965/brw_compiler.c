@@ -68,21 +68,19 @@ shader_perf_log_mesa(void *data, const char *fmt, ...)
 }
 
 #define COMMON_OPTIONS                                                        \
-   /* In order to help allow for better CSE at the NIR level we tell NIR to   \
-    * split all ffma instructions during opt_algebraic and we then re-combine \
-    * them as a later step.                                                   \
-    */                                                                        \
-   .lower_ffma = true,                                                        \
    .lower_sub = true,                                                         \
    .lower_fdiv = true,                                                        \
    .lower_scmp = true,                                                        \
-   .lower_fmod = true,                                                        \
+   .lower_fmod32 = true,                                                      \
+   .lower_fmod64 = false,                                                     \
    .lower_bitfield_extract = true,                                            \
    .lower_bitfield_insert = true,                                             \
    .lower_uadd_carry = true,                                                  \
    .lower_usub_borrow = true,                                                 \
    .lower_fdiv = true,                                                        \
-   .native_integers = true
+   .lower_flrp64 = true,                                                      \
+   .native_integers = true,                                                   \
+   .vertex_id_zero_based = true
 
 static const struct nir_shader_compiler_options scalar_nir_options = {
    COMMON_OPTIONS,
@@ -99,6 +97,26 @@ static const struct nir_shader_compiler_options scalar_nir_options = {
 };
 
 static const struct nir_shader_compiler_options vector_nir_options = {
+   COMMON_OPTIONS,
+
+   /* In the vec4 backend, our dpN instruction replicates its result to all the
+    * components of a vec4.  We would like NIR to give us replicated fdot
+    * instructions because it can optimize better for us.
+    */
+   .fdot_replicates = true,
+
+   /* Prior to Gen6, there are no three source operations for SIMD4x2. */
+   .lower_flrp32 = true,
+
+   .lower_pack_snorm_2x16 = true,
+   .lower_pack_unorm_2x16 = true,
+   .lower_unpack_snorm_2x16 = true,
+   .lower_unpack_unorm_2x16 = true,
+   .lower_extract_byte = true,
+   .lower_extract_word = true,
+};
+
+static const struct nir_shader_compiler_options vector_nir_options_gen6 = {
    COMMON_OPTIONS,
 
    /* In the vec4 backend, our dpN instruction replicates its result to all the
@@ -127,13 +145,16 @@ brw_compiler_create(void *mem_ctx, const struct brw_device_info *devinfo)
    brw_fs_alloc_reg_sets(compiler);
    brw_vec4_alloc_reg_set(compiler);
 
+   compiler->precise_trig = env_var_as_boolean("INTEL_PRECISE_TRIG", false);
+
    compiler->scalar_stage[MESA_SHADER_VERTEX] =
       devinfo->gen >= 8 && !(INTEL_DEBUG & DEBUG_VEC4VS);
-   compiler->scalar_stage[MESA_SHADER_TESS_CTRL] = false;
+   compiler->scalar_stage[MESA_SHADER_TESS_CTRL] =
+      devinfo->gen >= 8 && env_var_as_boolean("INTEL_SCALAR_TCS", true);
    compiler->scalar_stage[MESA_SHADER_TESS_EVAL] =
       devinfo->gen >= 8 && env_var_as_boolean("INTEL_SCALAR_TES", true);
    compiler->scalar_stage[MESA_SHADER_GEOMETRY] =
-      devinfo->gen >= 8 && env_var_as_boolean("INTEL_SCALAR_GS", false);
+      devinfo->gen >= 8 && env_var_as_boolean("INTEL_SCALAR_GS", true);
    compiler->scalar_stage[MESA_SHADER_FRAGMENT] = true;
    compiler->scalar_stage[MESA_SHADER_COMPUTE] = true;
 
@@ -143,12 +164,11 @@ brw_compiler_create(void *mem_ctx, const struct brw_device_info *devinfo)
       compiler->glsl_compiler_options[i].MaxIfDepth =
          devinfo->gen < 6 ? 16 : UINT_MAX;
 
-      compiler->glsl_compiler_options[i].EmitCondCodes = true;
       compiler->glsl_compiler_options[i].EmitNoNoise = true;
       compiler->glsl_compiler_options[i].EmitNoMainReturn = true;
       compiler->glsl_compiler_options[i].EmitNoIndirectInput = true;
       compiler->glsl_compiler_options[i].EmitNoIndirectUniform = false;
-      compiler->glsl_compiler_options[i].LowerClipDistance = true;
+      compiler->glsl_compiler_options[i].LowerCombinedClipCullDistance = true;
 
       bool is_scalar = compiler->scalar_stage[i];
 
@@ -160,14 +180,19 @@ brw_compiler_create(void *mem_ctx, const struct brw_device_info *devinfo)
       if (devinfo->gen < 7)
          compiler->glsl_compiler_options[i].EmitNoIndirectSampler = true;
 
-      compiler->glsl_compiler_options[i].NirOptions =
-         is_scalar ? &scalar_nir_options : &vector_nir_options;
+      if (is_scalar) {
+         compiler->glsl_compiler_options[i].NirOptions = &scalar_nir_options;
+      } else {
+         compiler->glsl_compiler_options[i].NirOptions =
+            devinfo->gen < 6 ? &vector_nir_options : &vector_nir_options_gen6;
+      }
 
       compiler->glsl_compiler_options[i].LowerBufferInterfaceBlocks = true;
    }
 
    compiler->glsl_compiler_options[MESA_SHADER_TESS_CTRL].EmitNoIndirectInput = false;
    compiler->glsl_compiler_options[MESA_SHADER_TESS_EVAL].EmitNoIndirectInput = false;
+   compiler->glsl_compiler_options[MESA_SHADER_TESS_CTRL].EmitNoIndirectOutput = false;
 
    if (compiler->scalar_stage[MESA_SHADER_GEOMETRY])
       compiler->glsl_compiler_options[MESA_SHADER_GEOMETRY].EmitNoIndirectInput = false;

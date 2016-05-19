@@ -857,6 +857,9 @@ const struct function common_desktop_functions_possible[] = {
    /* GL_ARB_internalformat_query */
    { "glGetInternalformativ", 30, -1 },
 
+   /* GL_ARB_internalformat_query */
+   { "glGetInternalformati64v", 30, -1 },
+
    /* GL_ARB_multi_bind */
    { "glBindBuffersBase", 44, -1 },
    { "glBindBuffersRange", 44, -1 },
@@ -2061,6 +2064,9 @@ const struct function gles11_functions_possible[] = {
    { "glObjectLabelKHR", 11, -1 },
    { "glObjectPtrLabelKHR", 11, -1 },
 
+   /* GL_EXT_polygon_offset_clamp */
+   { "glPolygonOffsetClampEXT", 11, -1 },
+
    { NULL, 0, -1 }
 };
 
@@ -2297,6 +2303,9 @@ const struct function gles2_functions_possible[] = {
    { "glObjectLabelKHR", 20, -1 },
    { "glObjectPtrLabelKHR", 20, -1 },
 
+   /* GL_EXT_polygon_offset_clamp */
+   { "glPolygonOffsetClampEXT", 11, -1 },
+
    { NULL, 0, -1 }
 };
 
@@ -2355,6 +2364,7 @@ const struct function gles3_functions_possible[] = {
    { "glGetInteger64v", 30, -1 },
    { "glGetIntegeri_v", 30, -1 },
    { "glGetInternalformativ", 30, -1 },
+   { "glGetInternalformati64v", 30, -1 },
    // glGetProgramBinary aliases glGetProgramBinaryOES in GLES 2
    { "glGetQueryiv", 30, -1 },
    { "glGetQueryObjectuiv", 30, -1 },
@@ -2435,6 +2445,41 @@ const struct function gles3_functions_possible[] = {
    { "glBindFragDataLocationIndexedEXT", 30, -1 },
    { "glGetFragDataIndexEXT", 30, -1 },
    { "glBindFragDataLocationEXT", 30, -1 },
+
+   /* GL_OES_texture_border_clamp */
+   { "glTexParameterIivOES", 30, -1 },
+   { "glTexParameterIuivOES", 30, -1 },
+   { "glGetTexParameterIivOES", 30, -1 },
+   { "glGetTexParameterIuivOES", 30, -1 },
+   { "glSamplerParameterIivOES", 30, -1 },
+   { "glSamplerParameterIuivOES", 30, -1 },
+   { "glGetSamplerParameterIivOES", 30, -1 },
+   { "glGetSamplerParameterIuivOES", 30, -1 },
+
+   /* GL_OES_texture_buffer */
+   { "glTexBufferOES", 31, -1 },
+   { "glTexBufferRangeOES", 31, -1 },
+
+   /* GL_OES_sample_shading */
+   { "glMinSampleShadingOES", 30, -1 },
+
+   /* GL_OES_copy_image */
+   { "glCopyImageSubDataOES", 30, -1 },
+
+   /* GL_OES_draw_buffers_indexed */
+   { "glBlendFunciOES", 30, -1 },
+   { "glBlendFuncSeparateiOES", 30, -1 },
+   { "glBlendEquationiOES", 30, -1 },
+   { "glBlendEquationSeparateiOES", 30, -1 },
+   { "glColorMaskiOES", 30, -1 },
+   { "glEnableiOES", 30, -1 },
+   { "glDisableiOES", 30, -1 },
+   { "glIsEnablediOES", 30, -1 },
+
+   /* GL_EXT_base_instance */
+   { "glDrawArraysInstancedBaseInstanceEXT", 30, -1 },
+   { "glDrawElementsInstancedBaseInstanceEXT", 30, -1 },
+   { "glDrawElementsInstancedBaseVertexBaseInstanceEXT", 30, -1 },
 
    { NULL, 0, -1 }
 };

@@ -58,8 +58,6 @@ public:
     */
    int subreg_offset;
 
-   fs_reg *reladdr;
-
    /** Register region horizontal stride */
    uint8_t stride;
 };
@@ -82,23 +80,29 @@ retype(fs_reg reg, enum brw_reg_type type)
 static inline fs_reg
 byte_offset(fs_reg reg, unsigned delta)
 {
+   reg.subreg_offset += delta;
+
    switch (reg.file) {
    case BAD_FILE:
       break;
    case VGRF:
    case ATTR:
-      reg.reg_offset += delta / 32;
+      reg.reg_offset += reg.subreg_offset / 32;
       break;
    case MRF:
       reg.nr += delta / 32;
       break;
+   case UNIFORM:
+      reg.reg_offset += reg.subreg_offset / 4;
+      reg.subreg_offset %= 4;
+      return reg;
    case ARF:
    case FIXED_GRF:
    case IMM:
-   case UNIFORM:
+   default:
       assert(delta == 0);
    }
-   reg.subreg_offset += delta % 32;
+   reg.subreg_offset %= 32;
    return reg;
 }
 
@@ -124,11 +128,14 @@ horiz_offset(fs_reg reg, unsigned delta)
    return reg;
 }
 
+/**
+ * Get the scalar channel of \p reg given by \p idx and replicate it to all
+ * channels of the result.
+ */
 static inline fs_reg
 component(fs_reg reg, unsigned idx)
 {
-   assert(reg.subreg_offset == 0);
-   reg.subreg_offset = idx * type_sz(reg.type);
+   reg = horiz_offset(reg, idx);
    reg.stride = 0;
    return reg;
 }
@@ -136,8 +143,7 @@ component(fs_reg reg, unsigned idx)
 static inline bool
 is_uniform(const fs_reg &reg)
 {
-   return (reg.stride == 0 || reg.is_null()) &&
-          (!reg.reladdr || is_uniform(*reg.reladdr));
+   return (reg.stride == 0 || reg.is_null());
 }
 
 /**
@@ -166,6 +172,34 @@ half(fs_reg reg, unsigned idx)
       unreachable("Cannot take half of this register type");
    }
    return reg;
+}
+
+/**
+ * Reinterpret each channel of register \p reg as a vector of values of the
+ * given smaller type and take the i-th subcomponent from each.
+ */
+static inline fs_reg
+subscript(fs_reg reg, brw_reg_type type, unsigned i)
+{
+   assert((i + 1) * type_sz(type) <= type_sz(reg.type));
+
+   if (reg.file == ARF || reg.file == FIXED_GRF) {
+      /* The stride is encoded inconsistently for fixed GRF and ARF registers
+       * as the log2 of the actual vertical and horizontal strides.
+       */
+      const int delta = _mesa_logbase2(type_sz(reg.type)) -
+                        _mesa_logbase2(type_sz(type));
+      reg.hstride += (reg.hstride ? delta : 0);
+      reg.vstride += (reg.vstride ? delta : 0);
+
+   } else if (reg.file == IMM) {
+      assert(reg.type == type);
+
+   } else {
+      reg.stride *= type_sz(reg.type) / type_sz(type);
+   }
+
+   return byte_offset(retype(reg, type), i * type_sz(type));
 }
 
 static const fs_reg reg_undef;

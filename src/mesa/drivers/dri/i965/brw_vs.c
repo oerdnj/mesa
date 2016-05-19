@@ -118,6 +118,10 @@ brw_codegen_vs_prog(struct brw_context *brw,
       prog_data.inputs_read |= VERT_BIT_EDGEFLAG;
    }
 
+   prog_data.base.cull_distance_mask =
+      ((1 << vp->program.Base.CullDistanceArraySize) - 1) <<
+      vp->program.Base.ClipDistanceArraySize;
+
    if (brw->gen < 6) {
       /* Put dummy slots into the VUE for the SF to put the replaced
        * point sprite coords in.  We shouldn't need these dummy slots,
@@ -277,7 +281,7 @@ brw_vs_debug_recompile(struct brw_context *brw,
 }
 
 static bool
-brw_vs_state_dirty(struct brw_context *brw)
+brw_vs_state_dirty(const struct brw_context *brw)
 {
    return brw_state_dirty(brw,
                           _NEW_BUFFERS |

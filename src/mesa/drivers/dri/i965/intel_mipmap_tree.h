@@ -657,13 +657,20 @@ struct intel_mipmap_tree
     */
    bool disable_aux_buffers;
 
+   /**
+    * Tells if the underlying buffer is to be also consumed by entities other
+    * than the driver. This allows logic to turn off features such as lossless
+    * compression which is not currently understood by client applications.
+    */
+   bool is_scanout;
+
    /* These are also refcounted:
     */
    GLuint refcount;
 };
 
 void
-intel_get_non_msrt_mcs_alignment(struct intel_mipmap_tree *mt,
+intel_get_non_msrt_mcs_alignment(const struct intel_mipmap_tree *mt,
                                  unsigned *width_px, unsigned *height);
 
 bool
@@ -679,8 +686,16 @@ intel_miptree_supports_non_msrt_fast_clear(struct brw_context *brw,
                                            const struct intel_mipmap_tree *mt);
 
 bool
+intel_miptree_supports_lossless_compressed(struct brw_context *brw,
+                                           const struct intel_mipmap_tree *mt);
+
+bool
 intel_miptree_alloc_non_msrt_mcs(struct brw_context *brw,
                                  struct intel_mipmap_tree *mt);
+
+void
+intel_miptree_prepare_mcs(struct brw_context *brw,
+                          struct intel_mipmap_tree *mt);
 
 enum {
    MIPTREE_LAYOUT_ACCELERATED_UPLOAD       = 1 << 0,
@@ -693,6 +708,8 @@ enum {
    MIPTREE_LAYOUT_TILING_NONE              = 1 << 6,
    MIPTREE_LAYOUT_TILING_ANY               = MIPTREE_LAYOUT_TILING_Y |
                                              MIPTREE_LAYOUT_TILING_NONE,
+
+   MIPTREE_LAYOUT_FOR_SCANOUT              = 1 << 7,
 };
 
 struct intel_mipmap_tree *intel_miptree_create(struct brw_context *brw,
