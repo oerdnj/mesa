@@ -79,6 +79,7 @@ typedef struct __DRIdri2LoaderExtensionRec	__DRIdri2LoaderExtension;
 typedef struct __DRI2flushExtensionRec	__DRI2flushExtension;
 typedef struct __DRI2throttleExtensionRec	__DRI2throttleExtension;
 typedef struct __DRI2fenceExtensionRec          __DRI2fenceExtension;
+typedef struct __DRI2interopExtensionRec	__DRI2interopExtension;
 
 
 typedef struct __DRIimageLoaderExtensionRec     __DRIimageLoaderExtension;
@@ -391,6 +392,31 @@ struct __DRI2fenceExtensionRec {
    void (*server_wait_sync)(__DRIcontext *ctx, void *fence, unsigned flags);
 };
 
+
+/**
+ * Extension for API interop.
+ * See GL/mesa_glinterop.h.
+ */
+
+#define __DRI2_INTEROP "DRI2_Interop"
+#define __DRI2_INTEROP_VERSION 1
+
+typedef struct _mesa_glinterop_device_info mesa_glinterop_device_info;
+typedef struct _mesa_glinterop_export_in mesa_glinterop_export_in;
+typedef struct _mesa_glinterop_export_out mesa_glinterop_export_out;
+
+struct __DRI2interopExtensionRec {
+   __DRIextension base;
+
+   /** Same as MesaGLInterop*QueryDeviceInfo. */
+   int (*query_device_info)(__DRIcontext *ctx,
+                            mesa_glinterop_device_info *out);
+
+   /** Same as MesaGLInterop*ExportObject. */
+   int (*export_object)(__DRIcontext *ctx,
+                        const mesa_glinterop_export_in *in,
+                        mesa_glinterop_export_out *out);
+};
 
 /*@}*/
 
@@ -1100,6 +1126,11 @@ struct __DRIdri2ExtensionRec {
 #define __DRI_IMAGE_USE_SCANOUT		0x0002
 #define __DRI_IMAGE_USE_CURSOR		0x0004 /* Depricated */
 #define __DRI_IMAGE_USE_LINEAR		0x0008
+/* The buffer will only be read by an external process after SwapBuffers,
+ * in contrary to gbm buffers, front buffers and fake front buffers, which
+ * could be read after a flush."
+ */
+#define __DRI_IMAGE_USE_BACKBUFFER      0x0010
 
 
 /**

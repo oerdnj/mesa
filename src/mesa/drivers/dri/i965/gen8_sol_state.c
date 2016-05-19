@@ -74,8 +74,6 @@ gen8_upload_3dstate_so_buffers(struct brw_context *brw)
          intel_bufferobj_buffer(brw, bufferobj, start, end - start);
       assert(end <= bo->size);
 
-      perf_debug("Missing MOCS setup for 3DSTATE_SO_BUFFER.");
-
       BEGIN_BATCH(8);
       OUT_BATCH(_3DSTATE_SO_BUFFER << 16 | (8 - 2));
       OUT_BATCH(GEN8_SO_BUFFER_ENABLE | (i << SO_BUFFER_INDEX_SHIFT) |
@@ -139,13 +137,13 @@ gen8_upload_3dstate_streamout(struct brw_context *brw, bool active,
 
       /* Set buffer pitches; 0 means unbound. */
       if (xfb_obj->Buffers[0])
-         dw3 |= linked_xfb_info->BufferStride[0] * 4;
+         dw3 |= linked_xfb_info->Buffers[0].Stride * 4;
       if (xfb_obj->Buffers[1])
-         dw3 |= (linked_xfb_info->BufferStride[1] * 4) << 16;
+         dw3 |= (linked_xfb_info->Buffers[1].Stride * 4) << 16;
       if (xfb_obj->Buffers[2])
-         dw4 |= linked_xfb_info->BufferStride[2] * 4;
+         dw4 |= linked_xfb_info->Buffers[2].Stride * 4;
       if (xfb_obj->Buffers[3])
-         dw4 |= (linked_xfb_info->BufferStride[3] * 4) << 16;
+         dw4 |= (linked_xfb_info->Buffers[3].Stride * 4) << 16;
    }
 
    BEGIN_BATCH(5);
@@ -177,6 +175,7 @@ const struct brw_tracked_state gen8_sol_state = {
    .dirty = {
       .mesa  = _NEW_LIGHT,
       .brw   = BRW_NEW_BATCH |
+               BRW_NEW_BLORP |
                BRW_NEW_TRANSFORM_FEEDBACK |
                BRW_NEW_VUE_MAP_GEOM_OUT,
    },

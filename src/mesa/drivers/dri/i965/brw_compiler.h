@@ -92,6 +92,12 @@ struct brw_compiler {
 
    bool scalar_stage[MESA_SHADER_STAGES];
    struct gl_shader_compiler_options glsl_compiler_options[MESA_SHADER_STAGES];
+
+   /**
+    * Apply workarounds for SIN and COS output range problems.
+    * This can negatively impact performance.
+    */
+   bool precise_trig;
 };
 
 
@@ -236,14 +242,12 @@ struct brw_wm_prog_key {
    uint8_t iz_lookup;
    bool stats_wm:1;
    bool flat_shade:1;
-   bool persample_shading:1;
-   bool persample_2x:1;
    unsigned nr_color_regions:5;
    bool replicate_alpha:1;
    bool render_to_fbo:1;
    bool clamp_fragment_color:1;
-   bool compute_pos_offset:1;
-   bool compute_sample_id:1;
+   bool persample_interp:1;
+   bool multisample_fbo:1;
    unsigned line_aa:2;
    bool high_quality_derivatives:1;
    bool force_dual_color_blend:1;
@@ -363,9 +367,11 @@ struct brw_wm_prog_data {
 
    GLuint num_varying_inputs;
 
-   GLuint dispatch_grf_start_reg_16;
-   GLuint reg_blocks;
-   GLuint reg_blocks_16;
+   uint8_t reg_blocks_0;
+   uint8_t reg_blocks_2;
+
+   uint8_t dispatch_grf_start_reg_2;
+   uint32_t prog_offset_2;
 
    struct {
       /** @{
@@ -379,8 +385,10 @@ struct brw_wm_prog_data {
    bool computed_stencil;
 
    bool early_fragment_tests;
-   bool no_8;
+   bool dispatch_8;
+   bool dispatch_16;
    bool dual_src_blend;
+   bool persample_dispatch;
    bool uses_pos_offset;
    bool uses_omask;
    bool uses_kill;
@@ -388,13 +396,18 @@ struct brw_wm_prog_data {
    bool uses_src_w;
    bool uses_sample_mask;
    bool pulls_bary;
-   uint32_t prog_offset_16;
 
    /**
     * Mask of which interpolation modes are required by the fragment shader.
     * Used in hardware setup on gen6+.
     */
    uint32_t barycentric_interp_modes;
+
+   /**
+    * Mask of which FS inputs are marked flat by the shader source.  This is
+    * needed for setting up 3DSTATE_SF/SBE.
+    */
+   uint32_t flat_inputs;
 
    /**
     * Map from gl_varying_slot to the position within the FS setup data
@@ -581,6 +594,8 @@ struct brw_vue_prog_data {
    GLuint urb_read_length;
    GLuint total_grf;
 
+   uint32_t cull_distance_mask;
+
    /* Used for calculating urb partitions.  In the VS, this is the size of the
     * URB entry used for both input and output to the thread.  In the GS, this
     * is the size of the URB entry used for output.
@@ -596,6 +611,7 @@ struct brw_vs_prog_data {
    GLbitfield64 inputs_read;
 
    unsigned nr_attributes;
+   unsigned nr_attribute_slots;
 
    bool uses_vertexid;
    bool uses_instanceid;
@@ -774,6 +790,7 @@ brw_compile_fs(const struct brw_compiler *compiler, void *log_data,
                struct gl_program *prog,
                int shader_time_index8,
                int shader_time_index16,
+               bool allow_spilling,
                bool use_rep_send,
                unsigned *final_assembly_size,
                char **error_str);

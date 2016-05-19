@@ -656,6 +656,7 @@
 #define GEN8_SURFACE_AUX_MODE_MCS               1
 #define GEN8_SURFACE_AUX_MODE_APPEND            2
 #define GEN8_SURFACE_AUX_MODE_HIZ               3
+#define GEN9_SURFACE_AUX_MODE_CCS_E             5
 
 /* Surface state DW7 */
 #define GEN9_SURFACE_RT_COMPRESSION_SHIFT       30
@@ -949,7 +950,6 @@ enum opcode {
     */
    FS_OPCODE_FB_WRITE_LOGICAL,
 
-   FS_OPCODE_BLORP_FB_WRITE,
    FS_OPCODE_REP_FB_WRITE,
    FS_OPCODE_PACK_STENCIL_REF,
    SHADER_OPCODE_RCP,
@@ -1012,6 +1012,15 @@ enum opcode {
     * used to reserve space for, say, a message header set up by the generators.
     */
    SHADER_OPCODE_LOAD_PAYLOAD,
+
+   /**
+    * Packs a number of sources into a single value. Unlike LOAD_PAYLOAD, this
+    * acts intra-channel, obtaining the final value for each channel by
+    * combining the sources values for the same channel, the first source
+    * occupying the lowest bits and the last source occupying the highest
+    * bits.
+    */
+   FS_OPCODE_PACK,
 
    SHADER_OPCODE_SHADER_TIME_ADD,
 

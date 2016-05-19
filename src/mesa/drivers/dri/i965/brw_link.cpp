@@ -26,6 +26,7 @@
 #include "brw_fs.h"
 #include "brw_nir.h"
 #include "brw_program.h"
+#include "compiler/glsl/ir.h"
 #include "compiler/glsl/ir_optimization.h"
 #include "compiler/glsl/program.h"
 #include "program/program.h"
@@ -105,12 +106,11 @@ process_glsl_ir(gl_shader_stage stage,
    brw_lower_packing_builtins(brw, shader->Stage, shader->ir);
    do_mat_op_to_vec(shader->ir);
    lower_instructions(shader->ir,
-                      MOD_TO_FLOOR |
                       DIV_TO_MUL_RCP |
                       SUB_TO_ADD_NEG |
                       EXP_TO_EXP2 |
                       LOG_TO_LOG2 |
-                      LDEXP_TO_ARITH |
+                      DFREXP_DLDEXP_TO_ARITH |
                       CARRY_TO_ARITH |
                       BORROW_TO_ARITH);
 
@@ -148,7 +148,9 @@ process_glsl_ir(gl_shader_stage stage,
       progress = false;
 
       if (compiler->scalar_stage[shader->Stage]) {
-         brw_do_channel_expressions(shader->ir);
+         if (shader->Stage == MESA_SHADER_VERTEX ||
+             shader->Stage == MESA_SHADER_FRAGMENT)
+            brw_do_channel_expressions(shader->ir);
          brw_do_vector_splitting(shader->ir);
       }
 
@@ -260,6 +262,6 @@ brw_link_shader(struct gl_context *ctx, struct gl_shader_program *shProg)
    if (brw->precompile && !brw_shader_precompile(ctx, shProg))
       return false;
 
-   build_program_resource_list(shProg);
+   build_program_resource_list(ctx, shProg);
    return true;
 }

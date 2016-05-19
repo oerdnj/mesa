@@ -120,7 +120,7 @@ private:
 
    void emitSET(const CmpInstruction *);
    void emitSLCT(const CmpInstruction *);
-   void emitSELP(const CmpInstruction *);
+   void emitSELP(const Instruction *);
 
    void emitTEXBAR(const Instruction *);
    void emitTEX(const TexInstruction *);
@@ -141,6 +141,8 @@ private:
    void emitVectorSubOp(const Instruction *);
 
    void emitPIXLD(const Instruction *);
+
+   void emitVOTE(const Instruction *);
 
    inline void defId(const ValueDef&, const int pos);
    inline void defId(const Instruction *, int d, const int pos);
@@ -1175,12 +1177,26 @@ CodeEmitterNVC0::emitSLCT(const CmpInstruction *i)
       code[0] |= 1 << 5;
 }
 
-void CodeEmitterNVC0::emitSELP(const CmpInstruction *i)
+static void
+selpFlip(const FixupEntry *entry, uint32_t *code, const FixupData& data)
+{
+   int loc = entry->loc;
+   if (data.force_persample_interp)
+      code[loc + 1] |= 1 << 20;
+   else
+      code[loc + 1] &= ~(1 << 20);
+}
+
+void CodeEmitterNVC0::emitSELP(const Instruction *i)
 {
    emitForm_A(i, HEX64(20000000, 00000004));
 
-   if (i->setCond == CC_NOT_P || i->src(2).mod & Modifier(NV50_IR_MOD_NOT))
+   if (i->src(2).mod & Modifier(NV50_IR_MOD_NOT))
       code[1] |= 1 << 20;
+
+   if (i->subOp == 1) {
+      addInterp(0, 0, selpFlip);
+   }
 }
 
 void CodeEmitterNVC0::emitTEXBAR(const Instruction *i)
@@ -1480,6 +1496,7 @@ CodeEmitterNVC0::emitBAR(const Instruction *i)
    } else {
       ImmediateValue *imm = i->getSrc(1)->asImm();
       assert(imm);
+      assert(imm->reg.data.u32 <= 0xfff);
       code[0] |= imm->reg.data.u32 << 26;
       code[1] |= imm->reg.data.u32 >> 6;
       code[1] |= 0x4000;
@@ -1635,18 +1652,17 @@ CodeEmitterNVC0::emitInterpMode(const Instruction *i)
 }
 
 static void
-interpApply(const InterpEntry *entry, uint32_t *code,
-      bool force_persample_interp, bool flatshade)
+interpApply(const FixupEntry *entry, uint32_t *code, const FixupData& data)
 {
    int ipa = entry->ipa;
    int reg = entry->reg;
    int loc = entry->loc;
 
-   if (flatshade &&
+   if (data.flatshade &&
        (ipa & NV50_IR_INTERP_MODE_MASK) == NV50_IR_INTERP_SC) {
       ipa = NV50_IR_INTERP_FLAT;
       reg = 0x3f;
-   } else if (force_persample_interp &&
+   } else if (data.force_persample_interp &&
               (ipa & NV50_IR_INTERP_SAMPLE_MASK) == NV50_IR_INTERP_DEFAULT &&
               (ipa & NV50_IR_INTERP_MODE_MASK) != NV50_IR_INTERP_FLAT) {
       ipa |= NV50_IR_INTERP_CENTROID;
@@ -1779,11 +1795,14 @@ CodeEmitterNVC0::emitSTORE(const Instruction *i)
    case FILE_MEMORY_GLOBAL: opc = 0x90000000; break;
    case FILE_MEMORY_LOCAL:  opc = 0xc8000000; break;
    case FILE_MEMORY_SHARED:
-      opc = 0xc8000000;
-      if (i->subOp == NV50_IR_SUBOP_STORE_UNLOCKED)
-         opc |= (1 << 26);
-      else
-         opc |= (1 << 24);
+      if (i->subOp == NV50_IR_SUBOP_STORE_UNLOCKED) {
+         if (targ->getChipset() >= NVISA_GK104_CHIPSET)
+            opc = 0xb8000000;
+         else
+            opc = 0xcc000000;
+      } else {
+         opc = 0xc9000000;
+      }
       break;
    default:
       assert(!"invalid memory file");
@@ -1792,6 +1811,15 @@ CodeEmitterNVC0::emitSTORE(const Instruction *i)
    }
    code[0] = 0x00000005;
    code[1] = opc;
+
+   if (targ->getChipset() >= NVISA_GK104_CHIPSET) {
+      // Unlocked store on shared memory can fail.
+      if (i->src(0).getFile() == FILE_MEMORY_SHARED &&
+          i->subOp == NV50_IR_SUBOP_STORE_UNLOCKED) {
+         assert(i->defExists(0));
+         defId(i->def(0), 8);
+      }
+   }
 
    setAddressByFile(i->src(0));
    srcId(i->src(1), 14);
@@ -1816,11 +1844,14 @@ CodeEmitterNVC0::emitLOAD(const Instruction *i)
    case FILE_MEMORY_GLOBAL: opc = 0x80000000; break;
    case FILE_MEMORY_LOCAL:  opc = 0xc0000000; break;
    case FILE_MEMORY_SHARED:
-      opc = 0xc0000000;
-      if (i->subOp == NV50_IR_SUBOP_LOAD_LOCKED)
-         opc |= (1 << 26);
-      else
-         opc |= (1 << 24);
+      if (i->subOp == NV50_IR_SUBOP_LOAD_LOCKED) {
+         if (targ->getChipset() >= NVISA_GK104_CHIPSET)
+            opc = 0xa8000000;
+         else
+            opc = 0xc4000000;
+      } else {
+         opc = 0xc1000000;
+      }
       break;
    case FILE_MEMORY_CONST:
       if (!i->src(0).isIndirect(0) && typeSizeof(i->dType) == 4) {
@@ -1840,7 +1871,10 @@ CodeEmitterNVC0::emitLOAD(const Instruction *i)
    if (i->src(0).getFile() == FILE_MEMORY_SHARED) {
       if (i->subOp == NV50_IR_SUBOP_LOAD_LOCKED) {
          assert(i->defExists(1));
-         defId(i->def(1), 32 + 18);
+         if (targ->getChipset() >= NVISA_GK104_CHIPSET)
+            defId(i->def(1), 8);
+         else
+            defId(i->def(1), 32 + 18);
       }
    }
 
@@ -2319,6 +2353,24 @@ CodeEmitterNVC0::emitPIXLD(const Instruction *i)
    code[1] |= 0x00e00000;
 }
 
+void
+CodeEmitterNVC0::emitVOTE(const Instruction *i)
+{
+   assert(i->src(0).getFile() == FILE_PREDICATE &&
+          i->def(1).getFile() == FILE_PREDICATE);
+
+   code[0] = 0x00000004 | (i->subOp << 5);
+   code[1] = 0x48000000;
+
+   emitPredicate(i);
+
+   defId(i->def(0), 14);
+   defId(i->def(1), 32 + 22);
+   if (i->src(0).mod == Modifier(NV50_IR_MOD_NOT))
+      code[0] |= 1 << 23;
+   srcId(i->src(0), 20);
+}
+
 bool
 CodeEmitterNVC0::emitInstruction(Instruction *insn)
 {
@@ -2445,7 +2497,7 @@ CodeEmitterNVC0::emitInstruction(Instruction *insn)
       emitSET(insn->asCmp());
       break;
    case OP_SELP:
-      emitSELP(insn->asCmp());
+      emitSELP(insn);
       break;
    case OP_SLCT:
       emitSLCT(insn->asCmp());
@@ -2588,6 +2640,9 @@ CodeEmitterNVC0::emitInstruction(Instruction *insn)
       break;
    case OP_PIXLD:
       emitPIXLD(insn);
+      break;
+   case OP_VOTE:
+      emitVOTE(insn);
       break;
    case OP_PHI:
    case OP_UNION:

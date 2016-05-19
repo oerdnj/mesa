@@ -545,10 +545,38 @@ next_offset(const struct brw_device_info *devinfo, void *store, int offset)
       return offset + 16;
 }
 
+struct opcode_desc {
+   /* The union is an implementation detail used by brw_opcode_desc() to handle
+    * opcodes that have been reused for different instructions across hardware
+    * generations.
+    *
+    * The gens field acts as a tag. If it is non-zero, name points to a string
+    * containing the instruction mnemonic. If it is zero, the table field is
+    * valid and either points to a secondary opcode_desc table with 'size'
+    * elements or is NULL and no such instruction exists for the opcode.
+    */
+   union {
+      struct {
+         char    *name;
+         int      nsrc;
+      };
+      struct {
+         const struct opcode_desc *table;
+         unsigned size;
+      };
+   };
+   int      ndst;
+   int      gens;
+};
+
+const struct opcode_desc *
+brw_opcode_desc(const struct brw_device_info *devinfo, enum opcode opcode);
+
 static inline bool
-is_3src(enum opcode opcode)
+is_3src(const struct brw_device_info *devinfo, enum opcode opcode)
 {
-   return opcode_descs[opcode].nsrc == 3;
+   const struct opcode_desc *desc = brw_opcode_desc(devinfo, opcode);
+   return desc && desc->nsrc == 3;
 }
 
 /** Maximum SEND message length */

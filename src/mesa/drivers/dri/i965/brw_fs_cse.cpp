@@ -81,6 +81,7 @@ is_expression(const fs_visitor *v, const fs_inst *const inst)
    case SHADER_OPCODE_EXTRACT_BYTE:
    case SHADER_OPCODE_EXTRACT_WORD:
    case SHADER_OPCODE_MOV_INDIRECT:
+   case FS_OPCODE_PACK:
       return true;
    case SHADER_OPCODE_RCP:
    case SHADER_OPCODE_RSQ:
@@ -186,7 +187,8 @@ static void
 create_copy_instr(const fs_builder &bld, fs_inst *inst, fs_reg src, bool negate)
 {
    int written = inst->regs_written;
-   int dst_width = inst->exec_size / 8;
+   int dst_width =
+      DIV_ROUND_UP(inst->dst.component_size(inst->exec_size), REG_SIZE);
    fs_inst *copy;
 
    if (written > dst_width) {
